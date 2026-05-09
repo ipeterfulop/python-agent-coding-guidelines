@@ -43,6 +43,7 @@ The rules below are organized into four parts:
 - [When to Extract a Class](#when-to-extract-a-class)
 - [Refactoring Discipline](#refactoring-discipline)
 - [Code Style Conventions](#code-style-conventions)
+- [Python Idiomatic Constructs](#python-idiomatic-constructs)
 
 ### Toolchain & Workflow
 
@@ -514,6 +515,124 @@ When a larger refactor is needed, Codex should propose a staged approach.
 - Prefer explicit return types
 - Prefer small pure helpers where possible
 - Prefer equality (`==`) over inequality/range checks when branching on a discriminant — it narrows the truth condition and makes future refactors safer
+
+---
+
+## Python Idiomatic Constructs
+
+Three constructs are easy to misuse: **comprehensions**, **generators**, and **context managers**. Each subsection gives Codex a **default**, a short **decision checklist**, and explicit **anti-patterns**. Apply the checklist before writing the construct; if any item fails, fall back to the default.
+
+Universal default: when in doubt, use a plain `for` loop or explicit `try` / `finally`. Clarity beats idiom.
+
+### Comprehensions (list / set / dict)
+
+Reference: https://realpython.com/ref/glossary/comprehension/
+
+**Default:** plain `for` loop. Promote to a comprehension only when the checklist passes.
+
+**Use a comprehension only if all of the following are true:**
+
+1. The output is a **collection built from an iterable** (the result is assigned or returned).
+2. The body is **one expression**, no statements.
+3. There is **at most one** `if` filter, and **no** `if/else` chain beyond a single simple ternary.
+4. There are **no side effects**: no `print`, no `.append`, no I/O, no exception handling.
+5. The line stays under the project line length and reads left-to-right without re-reading.
+
+If any item fails → write a `for` loop.
+
+**Pick the right kind:**
+
+| Need | Use |
+|---|---|
+| Ordered collection, duplicates allowed | list comprehension `[...]` |
+| Unique values, membership checks | set comprehension `{...}` |
+| Key → value mapping | dict comprehension `{k: v for ...}` |
+| Iterate once, large/streamed input | generator expression `(...)` — see below |
+
+**Anti-patterns Codex MUST NOT produce:**
+
+- A comprehension whose body has side effects (`[send(x) for x in xs]`).
+- A discarded comprehension used only for iteration.
+- Nested comprehensions deeper than one level when a `for` loop would be clearer.
+- An `if/else` ternary inside the expression that requires re-reading.
+
+```python
+# Good — one transformation, one filter
+active_emails = [user.email for user in users if user.is_active]
+
+# Bad — side effect, must be a for loop
+[send_welcome(user) for user in users]
+
+# Bad — nested ternary hides intent
+[(x if x > 0 else -x) if x != 0 else None for x in xs]
+```
+
+### Generators
+
+Reference: https://realpython.com/introduction-to-python-generators/
+
+**Default:** return a `list` or `tuple`. Promote to a generator only when the checklist passes.
+
+**Use a generator (`yield` function or generator expression) only if any of the following is true:**
+
+1. The sequence is **large, unbounded, or streamed** (file lines, paginated API, network results).
+2. The consumer needs only **one item at a time** (filter, sum, `any`/`all`, early exit).
+3. Materializing the full result would **waste memory or delay first output**.
+
+**Return a list / tuple instead when:**
+
+- The caller needs `len()`, indexing, slicing, or repeated iteration.
+- The data is small and already in memory.
+- The producer must **release a resource at the end** — generator cleanup runs only on exhaustion or garbage collection, which is unreliable. Either return a list or wrap the resource in a `with` block **inside** the generator.
+
+**Generator classes** (`__iter__` returns `self`, `__next__` yields) are rarely justified. Codex MUST prefer a generator function unless iteration state must coexist with other methods or attributes the caller uses during iteration.
+
+```python
+# Good — streams rows, resource scoped inside the generator
+def iter_rows(path: Path) -> Iterator[Row]:
+    with path.open() as f:
+        for line in f:
+            yield parse(line)
+
+# Bad — caller wants len() and random access; return list[User] instead
+def get_users() -> Iterator[User]:
+    ...
+```
+
+### Context Managers
+
+Reference: https://realpython.com/courses/with-statement-python/
+
+**Default:** if a resource has a paired **acquire / release** lifecycle, use `with`. Codex MUST NOT pair `open()` / `close()`, `acquire()` / `release()`, or `begin()` / `commit()` manually when a context manager exists.
+
+**Required for:**
+
+- Files, sockets, locks, database connections and cursors, transactions.
+- Temporary state that must be restored (working directory, env vars, monkeypatches).
+- Timing, tracing, or profiling blocks.
+
+**Why this is the default:**
+
+- **Deterministic cleanup** even on exception or early return — replaces fragile `try` / `finally`.
+- **Localized scope** — the resource's lifetime is visually bounded by indentation.
+- **Composability** — multiple resources combine in one `with a, b, c:` line; dynamic counts use `contextlib.ExitStack`.
+
+**Authoring rules:**
+
+1. For simple acquire/release, write a `@contextlib.contextmanager` generator: one `yield`, cleanup in `finally`.
+2. Write a class with `__enter__` / `__exit__` only when the manager is **stateful, reentrant, or exposes methods to the caller** during the block.
+3. Use `contextlib.ExitStack` when the number of resources is determined at runtime.
+
+```python
+# Good — cleanup is guaranteed
+with connection.cursor() as cursor:
+    cursor.execute(query)
+
+# Bad — manual cleanup, skipped on exception
+cursor = connection.cursor()
+cursor.execute(query)
+cursor.close()
+```
 
 ---
 

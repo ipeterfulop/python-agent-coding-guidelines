@@ -43,6 +43,7 @@ The rules below are organized into four parts:
 - [When to Extract a Class](#when-to-extract-a-class)
 - [Refactoring Discipline](#refactoring-discipline)
 - [Code Style Conventions](#code-style-conventions)
+- [Python Idiomatic Constructs](#python-idiomatic-constructs)
 
 ### Toolchain & Workflow
 
@@ -514,6 +515,115 @@ When a larger refactor is needed, Claude should propose a staged approach.
 - Prefer explicit return types
 - Prefer small pure helpers where possible
 - Prefer equality (`==`) over inequality/range checks when branching on a discriminant — it narrows the truth condition and makes future refactors safer
+
+---
+
+## Python Idiomatic Constructs
+
+Three constructs are easy to misuse: **comprehensions**, **generators**, and **context managers**. Use them when they sharpen intent; avoid them when they hide it.
+
+This section gives Claude decision rules first and examples second. When in doubt, fall back to a plain `for` loop or explicit `try/finally` — clarity beats idiom.
+
+### Comprehensions (list / set / dict)
+
+Reference: https://realpython.com/ref/glossary/comprehension/
+
+Claude SHOULD use a comprehension when **all** of these hold:
+
+- the goal is to **build a collection** from an iterable
+- the transformation fits on **one readable line**
+- there is **at most one** filter (`if`) and **no** `if/else` chains beyond a simple ternary
+- there are **no side effects** (no `print`, no `.append`, no I/O, no exceptions to handle)
+
+Claude SHOULD prefer a plain `for` loop when:
+
+- the body mutates external state or performs I/O
+- there is more than one filter, nested loops with conditions, or an `if/else` ternary that no longer reads left-to-right
+- the result is not a collection (do not write `[... for x in xs]` and discard it)
+- the line would need a comment to explain it
+
+Choose the right kind:
+
+| Need | Use |
+|---|---|
+| Ordered collection, duplicates allowed | list comprehension `[...]` |
+| Unique values, membership checks | set comprehension `{...}` |
+| Key → value mapping | dict comprehension `{k: v for ...}` |
+| Iterate once, large/streamed input | generator expression `(...)` — see below |
+
+```python
+# Good — one transformation, one filter
+active_emails = [user.email for user in users if user.is_active]
+
+# Bad — side effects belong in a loop
+[send_welcome(user) for user in users]
+
+# Bad — nested ternaries hide intent
+[(x if x > 0 else -x) if x != 0 else None for x in xs]
+```
+
+### Generators
+
+Reference: https://realpython.com/introduction-to-python-generators/
+
+Claude SHOULD prefer a generator (function with `yield`, or a generator expression) when:
+
+- the sequence is **large, unbounded, or streamed** (files, query pages, network results)
+- the consumer only needs **one item at a time** (filtering, summing, early exit)
+- producing the full list would waste memory or delay first output
+
+Claude SHOULD avoid generators when:
+
+- the caller needs `len()`, indexing, repeated iteration, or slicing — return a `list` or `tuple` instead
+- the data is small, already in memory, and a list is clearer
+- the producer must **release a resource at the end** — a generator's cleanup runs only when it is exhausted or garbage-collected, which is unreliable
+
+Generator **classes** (`__iter__` returning `self`, `__next__` yielding values) are rarely the right tool. Reach for one only when iteration state must coexist with other methods or attributes that callers also use during iteration. Otherwise, write a generator function — it is shorter, safer, and idiomatic.
+
+```python
+# Good — streams rows without loading the file
+def iter_rows(path: Path) -> Iterator[Row]:
+    with path.open() as f:
+        for line in f:
+            yield parse(line)
+
+# Bad — caller wants len() and random access
+def get_users() -> Iterator[User]:   # return list[User] instead
+    ...
+```
+
+### Context Managers
+
+Reference: https://realpython.com/courses/with-statement-python/
+
+Claude SHOULD use `with` for any resource that has a paired **acquire / release** lifecycle:
+
+- files, sockets, locks, database connections and cursors, transactions
+- temporary state that must be restored (working directory, env vars, monkeypatches)
+- timing, tracing, or profiling blocks
+
+Advantages worth optimizing for:
+
+- **Deterministic cleanup** even on exception or early return — replaces fragile `try/finally`
+- **Localized scope** — the resource's lifetime is visually bounded by indentation
+- **Composability** — multiple resources combine in one `with a, b, c:` line
+
+Authoring guidance:
+
+- For simple acquire/release, write a `@contextlib.contextmanager` generator function (one `yield`, cleanup in `finally`).
+- Write a class with `__enter__` / `__exit__` only when the manager is **stateful**, **reentrant**, or exposes methods to the caller during the block.
+- Use `contextlib.ExitStack` when the number of resources is dynamic.
+
+```python
+# Good — cleanup is guaranteed
+with connection.cursor() as cursor:
+    cursor.execute(query)
+
+# Bad — manual cleanup, skipped on exception
+cursor = connection.cursor()
+cursor.execute(query)
+cursor.close()
+```
 
 ---
 
