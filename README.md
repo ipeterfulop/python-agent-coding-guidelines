@@ -29,6 +29,7 @@ They push agents toward:
 - tests and checks before handing work back
 - simple code before speculative abstraction
 - OOP only when it improves cohesion, clarity, or testability
+- idiomatic use of comprehensions, generators, and context managers — with explicit defaults and decision checklists for when to reach for them and when not to
 
 The guidance is especially useful for repos that contain AI-generated Python
 code that is technically working but hard to read: long functions, procedural
