@@ -1,0 +1,7 @@
+interface:
+  display_name: "Python Agent Guidelines"
+  short_description: "Apply uv-first, reviewable Python coding rules"
+  default_prompt: "Use $python-agent-coding-guidelines to make this Python change with uv-first, reviewable coding guidelines."
+
+policy:
+  allow_implicit_invocation: true
